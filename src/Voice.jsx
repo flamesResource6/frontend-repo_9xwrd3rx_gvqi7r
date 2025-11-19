@@ -8,6 +8,10 @@ function Voice() {
   const [liveText, setLiveText] = useState('')
   const [finalText, setFinalText] = useState('')
 
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiAnswer, setAiAnswer] = useState('')
+  const [aiError, setAiError] = useState('')
+
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SpeechRecognition) {
@@ -44,9 +48,7 @@ function Voice() {
           interim += transcript
         }
       }
-      // Show interim instantly in the div
       setLiveText(interim)
-      // Append final text as it arrives
       if (finalChunk) {
         setFinalText((prev) => (prev + (prev && !prev.endsWith(' ') ? ' ' : '') + finalChunk).trim())
         setLiveText('')
@@ -71,8 +73,45 @@ function Voice() {
       try {
         recognitionRef.current.start()
       } catch (e) {
-        // Calling start twice can throw; ignore if already started
+        // ignore double-start errors
       }
+    }
+  }
+
+  const clearAll = () => {
+    setLiveText('')
+    setFinalText('')
+    setAiAnswer('')
+    setAiError('')
+  }
+
+  const searchAI = async () => {
+    const text = (finalText + (liveText ? ' ' + liveText : '')).trim()
+    setAiAnswer('')
+    setAiError('')
+    if (!text) {
+      setAiError('Nothing to search. Speak or type something first.')
+      return
+    }
+    const base = import.meta.env.VITE_BACKEND_URL || ''
+    const url = `${base}/api/ai/query`
+    setAiLoading(true)
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: text })
+      })
+      if (!res.ok) {
+        const msg = await res.text()
+        throw new Error(msg || 'AI request failed')
+      }
+      const data = await res.json()
+      setAiAnswer(data.answer || '')
+    } catch (e) {
+      setAiError(e.message || 'Request failed')
+    } finally {
+      setAiLoading(false)
     }
   }
 
@@ -96,12 +135,18 @@ function Voice() {
           <p className="text-blue-200 mt-2">Press start and speak. Your words will appear live below.</p>
         </div>
 
-        <div className="flex items-center justify-center gap-4 mb-8">
+        <div className="flex flex-wrap items-center justify-center gap-3 mb-8">
           <button
             onClick={toggle}
             className={`px-6 py-3 rounded-xl font-semibold text-white transition shadow-lg ${listening ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'}`}
           >
             {listening ? 'Stop' : 'Start'} Listening
+          </button>
+          <button
+            onClick={clearAll}
+            className="px-4 py-3 rounded-xl font-semibold text-white bg-slate-700 hover:bg-slate-600 shadow"
+          >
+            Clear
           </button>
           <span className={`text-sm px-3 py-1 rounded-full border ${listening ? 'border-green-400 text-green-300' : 'border-blue-300 text-blue-200'}`}>
             {status}
@@ -117,10 +162,29 @@ function Voice() {
           </div>
 
           <div className="bg-slate-800/60 border border-blue-500/20 rounded-2xl p-5">
-            <h2 className="text-white font-semibold mb-2">Captured</h2>
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-white font-semibold">Captured</h2>
+              <button
+                onClick={searchAI}
+                disabled={aiLoading}
+                className={`px-3 py-2 rounded-lg text-white text-sm font-medium shadow ${aiLoading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500'}`}
+              >
+                {aiLoading ? 'Searching…' : 'Search with AI'}
+              </button>
+            </div>
             <div className="min-h-[96px] text-blue-100 leading-relaxed whitespace-pre-wrap" id="final-text">
               {finalText || <span className="text-blue-300/50">Finalized words will gather here.</span>}
             </div>
+            {(aiAnswer || aiError) && (
+              <div className="mt-5 p-4 rounded-xl border bg-slate-900/40 border-blue-500/20">
+                <h3 className="text-white font-semibold mb-2">AI Result</h3>
+                {aiError ? (
+                  <p className="text-red-300 text-sm">{aiError}</p>
+                ) : (
+                  <pre className="whitespace-pre-wrap text-blue-100 text-sm">{aiAnswer}</pre>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
